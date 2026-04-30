@@ -1,0 +1,31 @@
+/vendor/
+/node_modules/
+
+# Composer
+composer.lock
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Certificates — NEVER commit private keys or certificates
+*.pem
+*.p8
+*.p12
+*.cer
+*.pfx
+*.key
+
+# Environment
+.env
+.env.*
+
+# PHPUnit
+.phpunit.result.cache
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
