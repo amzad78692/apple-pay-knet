@@ -7,148 +7,115 @@ use Amzad\ApplePayKnet\Exceptions\KnetException;
 class KnetGateway
 {
     /** @var string */
-    private $apiUrl;
+    private $endpoint;
 
     /** @var string */
-    private $merchantId;
+    private $id;
 
     /** @var string */
-    private $terminalId;
+    private $password;
 
     /** @var string */
-    private $apiKey;
+    private $responseUrl;
 
     /** @var string */
-    private $apiSecret;
+    private $errorUrl;
 
     public function __construct(
-        string $apiUrl,
-        string $merchantId,
-        string $terminalId,
-        string $apiKey,
-        string $apiSecret
+        string $endpoint,
+        string $id,
+        string $password,
+        string $responseUrl,
+        string $errorUrl
     ) {
-        $this->apiUrl     = rtrim($apiUrl, '/');
-        $this->merchantId = $merchantId;
-        $this->terminalId = $terminalId;
-        $this->apiKey     = $apiKey;
-        $this->apiSecret  = $apiSecret;
+        $this->endpoint    = $endpoint;
+        $this->id          = $id;
+        $this->password    = $password;
+        $this->responseUrl = $responseUrl;
+        $this->errorUrl    = $errorUrl;
     }
 
     /**
-     * Authorize a payment.
+     * Submit an Apple Pay payment authorization to KNET.
      *
-     * @param  array $payload  Fields: Amount (in fils), Currency, OrderId, Token, Timestamp, etc.
-     * @return array           KNET response with ResponseCode, TransactionId, AuthCode, etc.
+     * The Apple Pay token fields are mapped to KNET's UDF fields exactly as
+     * required by the KNET payment pipe:
+     *   udf8  = Apple Pay transactionIdentifier
+     *   udf9  = Apple Pay paymentData  (JSON-encoded)
+     *   udf10 = Apple Pay paymentMethod (JSON-encoded)
      *
-     * @throws KnetException
-     */
-    public function authorize(array $payload): array
-    {
-        $payload['TransactionType'] = 'SALE';
-        $payload['MerchantId']      = $this->merchantId;
-        $payload['TerminalId']      = $this->terminalId;
-
-        return $this->post('/payment/authorize', $payload);
-    }
-
-    /**
-     * Capture a previously authorized transaction.
+     * @param  string $amount     Payment amount in KWD (e.g. "5.250")
+     * @param  string $trackId    Unique order / reference ID
+     * @param  array  $appleToken The token object from Apple Pay (event.payment.token)
+     * @return array              Parsed KNET response fields
      *
      * @throws KnetException
      */
-    public function capture(string $transactionId): array
+    public function authorize(string $amount, string $trackId, array $appleToken): array
     {
-        return $this->post('/payment/capture', [
-            'TransactionId' => $transactionId,
-            'MerchantId'    => $this->merchantId,
-            'TerminalId'    => $this->terminalId,
-        ]);
-    }
+        $udf8  = $appleToken['transactionIdentifier'] ?? '';
+        $udf9  = json_encode($appleToken['paymentData']   ?? []);
+        $udf10 = json_encode($appleToken['paymentMethod'] ?? []);
 
-    /**
-     * Query the status of a transaction.
-     *
-     * @throws KnetException
-     */
-    public function inquiry(string $transactionId): array
-    {
-        return $this->post('/payment/inquiry', [
-            'TransactionId' => $transactionId,
-            'MerchantId'    => $this->merchantId,
-            'TerminalId'    => $this->terminalId,
-        ]);
-    }
-
-    /**
-     * Send a signed POST request to the KNET API.
-     *
-     * @throws KnetException
-     */
-    private function post(string $endpoint, array $payload): array
-    {
-        $payload['ApiKey']    = $this->apiKey;
-        $payload['Timestamp'] = gmdate('Y-m-d\TH:i:s\Z');
-        $payload['Signature'] = $this->sign($payload);
-
-        $body = json_encode($payload);
-        $url  = $this->apiUrl . $endpoint;
+        $xml = <<<XML
+            <request>
+                <id>{$this->id}</id>
+                <password>{$this->password}</password>
+                <action>1</action>
+                <currency>414</currency>
+                <langid>EN</langid>
+                <amt>{$amount}</amt>
+                <trackid>{$trackId}</trackid>
+                <udf8>{$udf8}</udf8>
+                <udf9>{$udf9}</udf9>
+                <udf10>{$udf10}</udf10>
+                <errorURL>{$this->errorUrl}</errorURL>
+                <responseURL>{$this->responseUrl}</responseURL>
+            </request>
+            XML;
 
         $ch = curl_init();
 
         curl_setopt_array($ch, [
-            CURLOPT_URL            => $url,
+            CURLOPT_URL            => $this->endpoint,
             CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => $body,
+            CURLOPT_POSTFIELDS     => $xml,
             CURLOPT_RETURNTRANSFER => true,
             CURLOPT_HTTPHEADER     => [
-                'Content-Type: application/json',
-                'Accept: application/json',
+                'Content-Type: application/xml',
+                'Accept: application/xml',
+                'Content-Length: ' . strlen($xml),
             ],
-            CURLOPT_TIMEOUT        => 30,
         ]);
 
         $response  = curl_exec($ch);
-        $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlErrno = curl_errno($ch);
         $curlError = curl_error($ch);
         curl_close($ch);
 
-        if ($curlError) {
+        if ($curlErrno) {
             throw KnetException::connectionFailed($curlError);
         }
 
-        if ($httpCode !== 200) {
-            throw KnetException::httpError($url, $httpCode);
+        // KNET returns a plain XML fragment; wrap it so simplexml can parse it
+        $wrappedXml = "<response>{$response}</response>";
+        $xmlObject  = @simplexml_load_string($wrappedXml);
+
+        if ($xmlObject === false) {
+            throw KnetException::connectionFailed('Invalid XML in KNET response: ' . $response);
         }
 
-        $decoded = json_decode($response, true);
+        $responseArray = json_decode(json_encode($xmlObject), true);
 
-        if (json_last_error() !== JSON_ERROR_NONE || !is_array($decoded)) {
-            throw KnetException::connectionFailed('Invalid JSON in KNET response');
-        }
-
-        $responseCode = $decoded['ResponseCode'] ?? null;
-
-        if ($responseCode !== '00') {
+        // KNET success: trackid is present in the response
+        if (empty($responseArray['trackid'])) {
             throw KnetException::authorizationFailed(
-                (string) $responseCode,
-                $decoded['ResponseMessage'] ?? 'Unknown error'
+                (string) ($responseArray['result'] ?? 'UNKNOWN'),
+                (string) ($responseArray['error_text'] ?? 'Authorization failed — no trackid in KNET response')
             );
         }
 
-        return $decoded;
-    }
-
-    /**
-     * Generate HMAC-SHA256 signature from the payload.
-     * The Signature field itself must not be included when computing the hash.
-     */
-    private function sign(array $payload): string
-    {
-        unset($payload['Signature']);
-
-        ksort($payload);
-
-        return hash_hmac('sha256', json_encode($payload), $this->apiSecret);
+        return $responseArray;
     }
 }
+

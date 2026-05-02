@@ -18,28 +18,28 @@ class ApplePayKnetServiceProvider extends ServiceProvider
 
         $this->app->singleton(MerchantValidator::class, function () {
             return new MerchantValidator(
-                config('apple-pay-knet.merchant_identifier'),
-                config('apple-pay-knet.domain_name'),
                 config('apple-pay-knet.display_name'),
+                config('apple-pay-knet.validation_url'),
+                config('apple-pay-knet.initiative'),
                 config('apple-pay-knet.certificate_path'),
-                config('apple-pay-knet.certificate_key_path')
+                config('apple-pay-knet.certificate_key_path'),
+                config('apple-pay-knet.certificate_key_password', '')
             );
         });
 
         $this->app->singleton(KnetGateway::class, function () {
             return new KnetGateway(
-                config('apple-pay-knet.knet.api_url'),
-                config('apple-pay-knet.knet.merchant_id'),
-                config('apple-pay-knet.knet.terminal_id'),
-                config('apple-pay-knet.knet.api_key'),
-                config('apple-pay-knet.knet.api_secret')
+                config('apple-pay-knet.knet.endpoint'),
+                config('apple-pay-knet.knet.id'),
+                config('apple-pay-knet.knet.password'),
+                config('apple-pay-knet.knet.response_url'),
+                config('apple-pay-knet.knet.error_url')
             );
         });
 
         $this->app->singleton(PaymentProcessor::class, function ($app) {
             return new PaymentProcessor(
                 $app->make(KnetGateway::class),
-                config('apple-pay-knet.currency'),
                 config('apple-pay-knet.log_transactions')
             );
         });

@@ -10,86 +10,62 @@ class PaymentProcessor
     /** @var KnetGateway */
     private $knet;
 
-    /** @var string */
-    private $currency;
-
     /** @var bool */
     private $logTransactions;
 
-    public function __construct(KnetGateway $knet, string $currency, bool $logTransactions)
+    public function __construct(KnetGateway $knet, bool $logTransactions)
     {
         $this->knet            = $knet;
-        $this->currency        = $currency;
         $this->logTransactions = $logTransactions;
     }
 
     /**
      * Charge a customer via Apple Pay + KNET.
      *
-     * Forwards the encrypted Apple Pay token directly to KNET, which handles
-     * its own token decryption. No server-side decryption is performed here.
+     * Pass the full event.payment object from the Apple Pay JS onpaymentauthorized event.
+     * KNET receives the encrypted token directly and handles decryption on their end.
      *
-     * @param  float       $amount          Amount in KWD (e.g. 5.250)
-     * @param  string      $orderId         Your unique order reference
-     * @param  array       $encryptedToken  Full Apple Pay payment token from onpaymentauthorized
-     * @param  array|null  $billingContact  Optional billing contact from Apple Pay
-     * @return array                        ['success' => true, 'transactionId' => '...', 'authCode' => '...']
+     * @param  string $amount         Payment amount in KWD (e.g. "5.250")
+     * @param  string $reference      Your unique order / reference ID (becomes KNET trackid)
+     * @param  array  $applePayment   Full event.payment object from Apple Pay JS
+     * @return array                  Full KNET response array
      *
      * @throws KnetException
      */
-    public function charge(
-        float $amount,
-        string $orderId,
-        array $encryptedToken,
-        ?array $billingContact = null
-    ): array {
-        // Convert KWD → fils (1 KWD = 1000 fils)
-        $amountInFils = (int) round($amount * 1000);
-
-        $appleTransactionId = $encryptedToken['paymentData']['header']['transactionId']
-            ?? $encryptedToken['header']['transactionId']
-            ?? null;
+    public function charge(string $amount, string $reference, array $applePayment): array
+    {
+        $appleToken = $applePayment['token'] ?? $applePayment;
 
         $transaction = null;
 
         if ($this->logTransactions) {
             $transaction = Transaction::create([
-                'order_id'            => $orderId,
-                'amount'              => $amountInFils,
-                'currency'            => $this->currency,
-                'apple_transaction_id' => $appleTransactionId,
-                'status'              => 'pending',
+                'order_id'             => $reference,
+                'amount'               => $amount,
+                'currency'             => '414',
+                'apple_transaction_id' => $appleToken['transactionIdentifier'] ?? null,
+                'status'               => 'pending',
             ]);
         }
 
         try {
-            $response = $this->knet->authorize([
-                'Amount'      => $amountInFils,
-                'Currency'    => $this->currency,
-                'OrderId'     => $orderId,
-                'Token'       => $encryptedToken,
-                'BillingContact' => $billingContact,
-            ]);
+            $response = $this->knet->authorize($amount, $reference, $appleToken);
 
             if ($transaction) {
                 $transaction->update([
-                    'knet_transaction_id' => $response['TransactionId'] ?? null,
+                    'knet_transaction_id' => $response['tranid']    ?? null,
                     'status'              => 'authorized',
-                    'response_code'       => $response['ResponseCode'] ?? null,
-                    'auth_code'           => $response['AuthCode'] ?? null,
+                    'response_code'       => $response['result']    ?? null,
+                    'auth_code'           => $response['auth']      ?? null,
                     'raw_response'        => $response,
                 ]);
             }
 
-            return [
-                'success'       => true,
-                'transactionId' => $response['TransactionId'] ?? null,
-                'authCode'      => $response['AuthCode'] ?? null,
-            ];
+            return $response;
         } catch (KnetException $e) {
             if ($transaction) {
                 $transaction->update([
-                    'status'        => 'failed',
+                    'status'       => 'failed',
                     'response_code' => $e->getResponseCode(),
                     'raw_response'  => ['error' => $e->getMessage()],
                 ]);
@@ -99,3 +75,4 @@ class PaymentProcessor
         }
     }
 }
+

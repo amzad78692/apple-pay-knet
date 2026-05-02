@@ -8,43 +8,48 @@ return [
     |--------------------------------------------------------------------------
     */
 
-    // Your Apple Pay merchant identifier (e.g. merchant.com.yourcompany)
-    'merchant_identifier' => env('APPLE_PAY_MERCHANT_IDENTIFIER', ''),
-
-    // The registered domain where Apple Pay is used (e.g. yourstore.com)
-    'domain_name' => env('APPLE_PAY_DOMAIN_NAME', ''),
-
-    // The name displayed on the Apple Pay payment sheet
+    // Your Apple Pay display name shown on the payment sheet
     'display_name' => env('APPLE_PAY_DISPLAY_NAME', ''),
 
     // Absolute path to the merchant identity certificate (.pem file)
-    // NEVER place these inside the public/ directory
+    // NEVER place inside public/. Store outside the web root.
     'certificate_path' => env('APPLE_PAY_CERTIFICATE_PATH', ''),
 
-    // Absolute path to the certificate private key file (.pem file)
+    // Absolute path to the certificate private key (.pem file)
     'certificate_key_path' => env('APPLE_PAY_CERTIFICATE_KEY_PATH', ''),
+
+    // Password used when encrypting the private key (set during key generation)
+    // Leave empty string if the key has no password
+    'certificate_key_password' => env('APPLE_PAY_CERTIFICATE_KEY_PASSWORD', ''),
+
+    // Apple Pay merchant validation endpoint (fixed — do not change unless Apple updates it)
+    'validation_url' => env('APPLE_PAY_VALIDATION_URL', 'https://apple-pay-gateway.apple.com/paymentservices/paymentSession'),
+
+    // Initiative type — always 'web' for web integrations
+    'initiative' => 'web',
 
     /*
     |--------------------------------------------------------------------------
     | KNET Gateway Configuration
     |--------------------------------------------------------------------------
+    | Credentials provided by your acquiring bank (KNET).
     */
 
     'knet' => [
-        // Base URL provided by your acquiring bank (no trailing slash)
-        'api_url' => env('KNET_API_URL', ''),
+        // KNET payment endpoint (use sandbox URL during development)
+        'endpoint' => env('KNET_ENDPOINT', 'https://www.kpaytest.com.kw/kpg/tranPipe.htm?param=tranInit&'),
 
-        // Merchant ID issued by KNET / your acquiring bank
-        'merchant_id' => env('KNET_MERCHANT_ID', ''),
+        // KNET merchant ID
+        'id' => env('KNET_ID', ''),
 
-        // Terminal ID issued by KNET / your acquiring bank
-        'terminal_id' => env('KNET_TERMINAL_ID', ''),
+        // KNET merchant password
+        'password' => env('KNET_PASSWORD', ''),
 
-        // API key for request authentication
-        'api_key' => env('KNET_API_KEY', ''),
+        // URL where KNET will POST the successful payment response
+        'response_url' => env('KNET_RESPONSE_URL', ''),
 
-        // API secret used to generate HMAC-SHA256 request signatures
-        'api_secret' => env('KNET_API_SECRET', ''),
+        // URL where KNET will redirect on payment error
+        'error_url' => env('KNET_ERROR_URL', ''),
     ],
 
     /*
@@ -58,16 +63,6 @@ return [
 
     // Middleware applied to all package routes
     'route_middleware' => ['web'],
-
-    /*
-    |--------------------------------------------------------------------------
-    | Currency
-    |--------------------------------------------------------------------------
-    | ISO 4217 numeric currency code.
-    | 414 = Kuwaiti Dinar (KWD). Amounts are stored and sent in fils (× 1000).
-    */
-
-    'currency' => env('APPLE_PAY_CURRENCY', '414'),
 
     /*
     |--------------------------------------------------------------------------

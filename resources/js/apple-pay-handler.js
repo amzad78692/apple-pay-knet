@@ -2,21 +2,24 @@
     'use strict';
 
     /**
-     * ApplePayKnet — lightweight Apple Pay on the Web handler for the amzad/apple-pay-knet package.
+     * ApplePayKnet — Apple Pay on the Web handler for the amzad/apple-pay-knet package.
+     *
+     * Mirrors the proven apple-pay-php implementation:
+     *  - Merchant validation uses server's fixed URL (no validationUrl sent in request)
+     *  - The full event.payment object is sent to processPayment
+     *  - On success, a hidden form is auto-submitted to the callbackUrl with the KNET response
      *
      * Usage:
      *   window.ApplePayKnet.init({
      *     validateMerchantUrl : '/apple-pay/validate-merchant',
      *     processPaymentUrl   : '/apple-pay/process-payment',
      *     amount              : '5.250',
-     *     orderId             : 'ORD-001',
-     *     label               : 'My Store',
-     *     currencyCode        : 'KWD',
-     *     countryCode         : 'KW',
-     *     csrfToken           : 'xxx',
-     *     onSuccess           : function (response) {},
-     *     onError             : function (error) {},
-     *     onCancel            : function () {}
+     *     reference           : 'ORD-001',
+     *     callbackUrl         : '/orders/complete',
+     *     csrfToken           : '{{ csrf_token() }}',
+     *     onSuccess           : function (knetResponse) {},   // optional, fires before redirect
+     *     onError             : function (error) {},          // optional
+     *     onCancel            : function () {}                // optional
      *   });
      */
 
@@ -27,25 +30,21 @@
          */
         init: function (config) {
             this.config = Object.assign({
-                applePayVersion   : 3,
-                merchantCapabilities: ['supports3DS'],
-                supportedNetworks : ['visa', 'masterCard', 'mada'],
-                currencyCode      : 'KWD',
-                countryCode       : 'KW',
-                onSuccess         : null,
-                onError           : null,
-                onCancel          : null
+                applePayVersion      : 3,
+                countryCode          : 'KW',
+                currencyCode         : 'KWD',
+                merchantCapabilities : ['supports3DS'],
+                supportedNetworks    : ['visa', 'masterCard', 'amex', 'discover'],
+                paymentGateway       : 'KNET',
+                onSuccess            : null,
+                onError              : null,
+                onCancel             : null
             }, config);
 
             this._hideButton();
 
-            if (!window.ApplePaySession) {
-                this._log('Apple Pay is not available (ApplePaySession missing).');
-                return;
-            }
-
-            if (!ApplePaySession.canMakePayments()) {
-                this._log('Apple Pay cannot make payments on this device/browser.');
+            if (!window.ApplePaySession || !ApplePaySession.canMakePayments()) {
+                this._log('Apple Pay is not available on this device/browser.');
                 return;
             }
 
@@ -82,7 +81,7 @@
         },
 
         _startSession: function () {
-            var cfg = this.config;
+            var cfg  = this.config;
             var self = this;
 
             var paymentRequest = {
@@ -91,7 +90,7 @@
                 merchantCapabilities : cfg.merchantCapabilities,
                 supportedNetworks    : cfg.supportedNetworks,
                 total                : {
-                    label  : cfg.label,
+                    label  : cfg.label || 'Your card will be charged',
                     amount : String(cfg.amount),
                     type   : 'final'
                 }
@@ -100,44 +99,76 @@
             var session = new ApplePaySession(cfg.applePayVersion, paymentRequest);
 
             // ── Merchant validation ──────────────────────────────────────────
+            // Uses a GET to the server's validate-merchant endpoint.
+            // The server uses its own fixed validation URL from config — no URL
+            // is passed from the browser (matching the working implementation).
             session.onvalidatemerchant = function (event) {
-                self._post(cfg.validateMerchantUrl, { validationUrl: event.validationURL })
-                    .then(function (merchantSession) {
-                        session.completeMerchantValidation(merchantSession);
-                    })
-                    .catch(function (err) {
-                        self._log('Merchant validation failed', err);
+                fetch(cfg.validateMerchantUrl, {
+                    headers: {
+                        'Accept'       : 'application/json',
+                        'X-CSRF-TOKEN' : cfg.csrfToken || ''
+                    }
+                })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (data.status === true) {
+                        session.completeMerchantValidation(data.response);
+                    } else {
+                        self._log('Merchant validation failed', data.message);
                         session.abort();
-                        self._triggerError(err);
-                    });
+                        self._triggerError(data.message || 'Merchant validation failed');
+                    }
+                })
+                .catch(function (err) {
+                    self._log('Merchant validation error', err);
+                    session.abort();
+                    self._triggerError(err);
+                });
             };
 
             // ── Payment authorised ───────────────────────────────────────────
             session.onpaymentauthorized = function (event) {
-                var payload = {
-                    amount        : cfg.amount,
-                    orderId       : cfg.orderId,
-                    token         : event.payment.token,
-                    billingContact: event.payment.billingContact || null
-                };
+                var params = new URLSearchParams();
+                params.append('amount',             String(cfg.amount));
+                params.append('reference',          String(cfg.reference));
+                params.append('payment_gateway',    String(cfg.paymentGateway));
+                params.append('apple_pay_response', JSON.stringify(event.payment));
 
-                self._post(cfg.processPaymentUrl, payload)
-                    .then(function (result) {
-                        if (result.success) {
-                            session.completePayment(ApplePaySession.STATUS_SUCCESS);
-                            if (typeof cfg.onSuccess === 'function') cfg.onSuccess(result);
-                        } else {
-                            session.completePayment(ApplePaySession.STATUS_FAILURE);
-                            self._triggerError(result.error || 'Payment failed');
+                // Include CSRF token for Laravel
+                if (cfg.csrfToken) {
+                    params.append('_token', cfg.csrfToken);
+                }
+
+                fetch(cfg.processPaymentUrl, {
+                    method  : 'POST',
+                    headers : { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body    : params
+                })
+                .then(function (res) { return res.json(); })
+                .then(function (data) {
+                    if (data.status === true) {
+                        session.completePayment(ApplePaySession.STATUS_SUCCESS);
+
+                        if (typeof cfg.onSuccess === 'function') {
+                            cfg.onSuccess(data.response);
                         }
-                    })
-                    .catch(function (err) {
+
+                        // Auto-submit the KNET response fields to the callback URL
+                        if (cfg.callbackUrl) {
+                            self._submitForm(data.response, cfg.callbackUrl);
+                        }
+                    } else {
                         session.completePayment(ApplePaySession.STATUS_FAILURE);
-                        self._triggerError(err);
-                    });
+                        self._triggerError(data.message || 'Payment failed');
+                    }
+                })
+                .catch(function (err) {
+                    session.completePayment(ApplePaySession.STATUS_FAILURE);
+                    self._triggerError(err);
+                });
             };
 
-            // ── Cancel / error ───────────────────────────────────────────────
+            // ── Cancel ───────────────────────────────────────────────────────
             session.oncancel = function () {
                 if (typeof cfg.onCancel === 'function') cfg.onCancel();
             };
@@ -146,37 +177,32 @@
         },
 
         /**
-         * POST JSON with CSRF token.
-         *
-         * @param  {string} url
-         * @param  {Object} data
-         * @return {Promise<Object>}
+         * Create a hidden form from dataObject and submit it to actionUrl.
+         * This matches the working apple-pay-php behaviour — KNET response
+         * fields are POSTed to the merchant's callback page.
          */
-        _post: function (url, data) {
-            var cfg = this.config;
+        _submitForm: function (dataObject, actionUrl) {
+            var form = document.createElement('form');
+            form.method = 'POST';
+            form.action = actionUrl;
 
-            return fetch(url, {
-                method : 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept'      : 'application/json',
-                    'X-CSRF-TOKEN': cfg.csrfToken || ''
-                },
-                body: JSON.stringify(data)
-            }).then(function (response) {
-                if (!response.ok) {
-                    return response.json().then(function (err) {
-                        throw err;
-                    });
+            for (var key in dataObject) {
+                if (Object.prototype.hasOwnProperty.call(dataObject, key)) {
+                    var input   = document.createElement('input');
+                    input.type  = 'hidden';
+                    input.name  = key;
+                    input.value = dataObject[key];
+                    form.appendChild(input);
                 }
-                return response.json();
-            });
+            }
+
+            document.body.appendChild(form);
+            form.submit();
         },
 
         _triggerError: function (error) {
-            var cfg = this.config;
-            this._log('Apple Pay error', error);
-            if (typeof cfg.onError === 'function') cfg.onError(error);
+            this._log('Error', error);
+            if (typeof this.config.onError === 'function') this.config.onError(error);
         },
 
         _log: function () {
@@ -189,3 +215,4 @@
     window.ApplePayKnet = ApplePayKnet;
 
 }(window));
+

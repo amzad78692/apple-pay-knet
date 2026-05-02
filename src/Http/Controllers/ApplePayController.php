@@ -3,7 +3,7 @@
 namespace Amzad\ApplePayKnet\Http\Controllers;
 
 use Illuminate\Routing\Controller;
-use Amzad\ApplePayKnet\Http\Requests\ValidateMerchantRequest;
+use Illuminate\Http\Request;
 use Amzad\ApplePayKnet\Http\Requests\ProcessPaymentRequest;
 use Amzad\ApplePayKnet\Services\MerchantValidator;
 use Amzad\ApplePayKnet\Services\PaymentProcessor;
@@ -28,43 +28,51 @@ class ApplePayController extends Controller
     /**
      * Validate the Apple Pay merchant session.
      *
-     * Called server-side when the browser fires onvalidatemerchant.
-     * Returns the opaque merchant session JSON to pass to completeMerchantValidation().
+     * Called by JS onvalidatemerchant. Uses the fixed validation URL from config —
+     * no URL is taken from the request (matches the proven working implementation).
      */
-    public function validateMerchant(ValidateMerchantRequest $request): JsonResponse
+    public function validateMerchant(Request $request): JsonResponse
     {
         try {
-            $session = $this->merchantValidator->validate($request->input('validationUrl'));
+            $session = $this->merchantValidator->validate();
 
-            return response()->json($session);
+            return response()->json(['status' => true, 'response' => $session]);
         } catch (ApplePayException $e) {
-            return response()->json(['error' => $e->getMessage()], 422);
+            return response()->json(['status' => false, 'message' => $e->getMessage()], 422);
         }
     }
 
     /**
-     * Process a payment using the Apple Pay token.
+     * Process the Apple Pay payment through KNET.
      *
-     * Called server-side when the browser fires onpaymentauthorized.
-     * Returns a JSON response that the JS uses to call completePayment().
+     * Expects the full event.payment object from the JS onpaymentauthorized event,
+     * plus amount and reference. On success returns the full KNET response so the
+     * frontend can POST it to the callback URL.
      */
     public function processPayment(ProcessPaymentRequest $request): JsonResponse
     {
+        $applePayResponse = $request->input('apple_pay_response');
+
+        // Accept either a JSON string (from form-urlencoded) or already-decoded array
+        if (is_string($applePayResponse)) {
+            $applePayResponse = json_decode($applePayResponse, true);
+        }
+
         try {
-            $result = $this->paymentProcessor->charge(
-                (float) $request->input('amount'),
-                $request->input('orderId'),
-                $request->input('token'),
-                $request->input('billingContact')
+            $response = $this->paymentProcessor->charge(
+                (string) $request->input('amount'),
+                (string) $request->input('reference'),
+                $applePayResponse
             );
 
-            return response()->json($result);
+            return response()->json(['status' => true, 'response' => $response]);
         } catch (KnetException $e) {
             return response()->json([
-                'success' => false,
-                'error'   => $e->getMessage(),
+                'status'  => false,
+                'message' => $e->getMessage(),
                 'code'    => $e->getResponseCode(),
             ], 422);
         }
     }
 }
+

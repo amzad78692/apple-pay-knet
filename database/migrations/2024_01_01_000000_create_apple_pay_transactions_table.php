@@ -11,7 +11,7 @@ class CreateApplePayTransactionsTable extends Migration
         Schema::create('apple_pay_transactions', function (Blueprint $table) {
             $table->bigIncrements('id');
             $table->string('order_id')->index();
-            $table->unsignedBigInteger('amount');     // stored in fils (KWD × 1000)
+            $table->string('amount');                 // KWD decimal amount as string (e.g. "5.250")
             $table->string('currency', 3)->default('414');
             $table->string('apple_transaction_id')->nullable();
             $table->string('knet_transaction_id')->nullable();

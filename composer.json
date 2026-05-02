@@ -1,43 +1,52 @@
 {
-    "name": "amzad/apple-pay-knet",
-    "description": "Apple Pay on the Web + KNET Direct integration for Laravel and plain PHP",
-    "type": "library",
-    "license": "MIT",
-    "keywords": ["apple-pay", "knet", "kuwait", "payment", "laravel"],
-    "authors": [
-        {
-            "name": "Amzad",
-            "email": "amzad.nnt@gmail.com"
-        }
-    ],
-    "require": {
-        "php": "^7.4|^8.0",
-        "illuminate/support": "^8.0|^9.0|^10.0|^11.0",
-        "illuminate/http": "^8.0|^9.0|^10.0|^11.0",
-        "ext-curl": "*",
-        "ext-openssl": "*",
-        "ext-json": "*"
-    },
-    "require-dev": {
-        "orchestra/testbench": "^6.0|^7.0|^8.0|^9.0",
-        "phpunit/phpunit": "^9.0|^10.0",
-        "mockery/mockery": "^1.5"
-    },
-    "autoload": {
-        "psr-4": {
-            "Amzad\\ApplePayKnet\\": "src/"
-        }
-    },
-    "extra": {
-        "laravel": {
-            "providers": [
-                "Amzad\\ApplePayKnet\\ApplePayKnetServiceProvider"
-            ],
-            "aliases": {
-                "ApplePayKnet": "Amzad\\ApplePayKnet\\Facades\\ApplePayKnet"
-            }
-        }
-    },
-    "minimum-stability": "stable",
-    "prefer-stable": true
+  "name": "amzad/apple-pay-knet",
+  "description": "Apple Pay on the Web + KNET Direct integration for Laravel and plain PHP",
+  "type": "library",
+  "license": "MIT",
+  "keywords": [
+    "apple-pay",
+    "knet",
+    "kuwait",
+    "payment",
+    "laravel"
+  ],
+  "authors": [
+    {
+      "name": "Amzad",
+      "email": "amzad.nnt@gmail.com"
+    }
+  ],
+  "require": {
+    "php": "^7.4|^8.0",
+    "illuminate/support": "^8.0|^9.0|^10.0|^11.0|^12.0|^13.0",
+    "illuminate/http": "^8.0|^9.0|^10.0|^11.0|^12.0|^13.0",
+    "ext-curl": "*",
+    "ext-openssl": "*",
+    "ext-json": "*"
+  },
+  "require-dev": {
+    "orchestra/testbench": "^6.0|^7.0|^8.0|^9.0",
+    "phpunit/phpunit": "^9.0|^10.0",
+    "mockery/mockery": "^1.5"
+  },
+  "autoload": {
+    "psr-4": {
+      "Amzad\\ApplePayKnet\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Amzad\\ApplePayKnet\\Tests\\": "tests/"
+    }
+  },
+  "extra": {
+    "laravel": {
+      "providers": [
+        "Amzad\\ApplePayKnet\\ApplePayKnetServiceProvider"
+      ],
+      "aliases": {
+        "ApplePayKnet": "Amzad\\ApplePayKnet\\Facades\\ApplePayKnet"
+      }
+    }
+  }
 }

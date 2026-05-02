@@ -22,7 +22,6 @@ class Transaction extends Model
     ];
 
     protected $casts = [
-        'amount'       => 'integer',
         'raw_response' => 'array',
     ];
 
