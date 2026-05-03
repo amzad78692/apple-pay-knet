@@ -79,28 +79,40 @@ class MerchantValidator
             CURLOPT_SSL_VERIFYHOST  => 2,
             CURLOPT_TIMEOUT         => 30,
             CURLOPT_HTTP_VERSION    => CURL_HTTP_VERSION_1_1,
+            CURLOPT_CERTINFO        => true,
         ];
 
         if ($this->certificateKeyPassword !== '') {
             $curlOptions[CURLOPT_SSLKEYPASSWD] = $this->certificateKeyPassword;
         }
 
+        // Capture verbose TLS output to a temp file so we can include it in error messages
+        $verboseHandle = fopen('php://temp', 'w+');
+        $curlOptions[CURLOPT_VERBOSE] = true;
+        $curlOptions[CURLOPT_STDERR]  = $verboseHandle;
+
         $ch = curl_init();
         curl_setopt_array($ch, $curlOptions);
         $response  = curl_exec($ch);
         $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);
+        $certInfo  = curl_getinfo($ch, CURLINFO_CERTINFO);
         curl_close($ch);
+
+        rewind($verboseHandle);
+        $verboseLog = stream_get_contents($verboseHandle);
+        fclose($verboseHandle);
 
         if ($curlError) {
             throw ApplePayException::merchantValidationFailed(
-                'cURL error: ' . $curlError . ' — check that the certificate path, key path, and format (PEM) are correct.'
+                'cURL error: ' . $curlError . "\nTLS details: " . $verboseLog
             );
         }
 
         if ($httpCode !== 200) {
             throw ApplePayException::merchantValidationFailed(
-                'Apple returned HTTP ' . $httpCode . '. Response: ' . $response
+                'Apple returned HTTP ' . $httpCode . '. Response: ' . $response .
+                "\nTLS details: " . $verboseLog
             );
         }
 
