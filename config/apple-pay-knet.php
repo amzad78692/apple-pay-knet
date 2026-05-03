@@ -23,7 +23,7 @@ return [
     'certificate_key_password' => env('APPLE_PAY_CERTIFICATE_KEY_PASSWORD', ''),
 
     // Apple Pay merchant validation endpoint (fixed — do not change unless Apple updates it)
-    'validation_url' => env('APPLE_PAY_VALIDATION_URL', 'https://apple-pay-gateway.apple.com/paymentservices/paymentSession'),
+    'validation_url' => env('APPLE_PAY_VALIDATION_URL', 'https://apple-pay-gateway-cert.apple.com/paymentservices/startSession'),
 
     // Initiative type — always 'web' for web integrations
     'initiative' => 'web',
