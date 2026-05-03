@@ -64,14 +64,19 @@ class MerchantValidator
         ];
 
         $curlOptions = [
-            CURLOPT_URL            => $this->validationUrl,
-            CURLOPT_POST           => true,
-            CURLOPT_POSTFIELDS     => json_encode($postData),
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_HTTPHEADER     => ['Content-Type: application/json'],
-            CURLOPT_SSLCERT        => $this->certificatePath,
-            CURLOPT_SSLKEY         => $this->certificateKeyPath,
-            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_URL             => $this->validationUrl,
+            CURLOPT_POST            => true,
+            CURLOPT_POSTFIELDS      => json_encode($postData),
+            CURLOPT_RETURNTRANSFER  => true,
+            CURLOPT_HTTPHEADER      => ['Content-Type: application/json'],
+            CURLOPT_SSLCERT         => $this->certificatePath,
+            CURLOPT_SSLCERTTYPE     => 'PEM',
+            CURLOPT_SSLKEY          => $this->certificateKeyPath,
+            CURLOPT_SSLKEYTYPE      => 'PEM',
+            CURLOPT_SSL_VERIFYPEER  => true,
+            CURLOPT_SSL_VERIFYHOST  => 2,
+            CURLOPT_TIMEOUT         => 30,
+            CURLOPT_HTTP_VERSION    => CURL_HTTP_VERSION_1_1,
         ];
 
         if ($this->certificateKeyPassword !== '') {
@@ -81,11 +86,20 @@ class MerchantValidator
         $ch = curl_init();
         curl_setopt_array($ch, $curlOptions);
         $response  = curl_exec($ch);
+        $httpCode  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
         $curlError = curl_error($ch);
         curl_close($ch);
 
         if ($curlError) {
-            throw ApplePayException::merchantValidationFailed($curlError);
+            throw ApplePayException::merchantValidationFailed(
+                'cURL error: ' . $curlError . ' — check that the certificate path, key path, and format (PEM) are correct.'
+            );
+        }
+
+        if ($httpCode !== 200) {
+            throw ApplePayException::merchantValidationFailed(
+                'Apple returned HTTP ' . $httpCode . '. Response: ' . $response
+            );
         }
 
         $decoded = json_decode($response, true);
@@ -125,10 +139,14 @@ class MerchantValidator
 
     /**
      * Get the current HTTP host for initiative context.
+     * Port is stripped — Apple rejects domainName/initiativeContext values that include a port.
      */
     private function getDomainFromRequest(): string
     {
-        return isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : parse_url($this->validationUrl, PHP_URL_HOST);
+        $host = isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : parse_url($this->validationUrl, PHP_URL_HOST);
+
+        // Strip port (e.g. yourstore.com:443 → yourstore.com)
+        return strtolower(explode(':', $host)[0]);
     }
 }
 
