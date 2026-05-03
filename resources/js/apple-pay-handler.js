@@ -101,28 +101,28 @@
       var session = new ApplePaySession(cfg.applePayVersion, paymentRequest);
 
       // ── Merchant validation ──────────────────────────────────────────
-      // Apple provides a per-session validationURL in the event. It MUST be
-      // forwarded to the server — using a hardcoded URL causes HTTP 400.
+      // Uses a GET to the server's validate-merchant endpoint.
+      // The server uses its own fixed validation URL from config — no URL
+      // is passed from the browser (matching the working implementation).
       session.onvalidatemerchant = function (event) {
+        self._log("Validating merchant with server...", event.validationURL);
         fetch(cfg.validateMerchantUrl, {
-          method: "POST",
           headers: {
             Accept: "application/json",
-            "Content-Type": "application/json",
             "X-CSRF-TOKEN": cfg.csrfToken || "",
           },
-          body: JSON.stringify({ validationUrl: event.validationURL }),
         })
           .then(function (res) {
             return res.json();
           })
           .then(function (data) {
             if (data.status === true) {
+              self._log("Merchant validation successful.", data);
               session.completeMerchantValidation(data.response);
             } else {
-              self._log("Merchant validation failed", data.message);
+              self._log("Merchant validation failed", data);
               session.abort();
-              self._triggerError(data.message || "Merchant validation failed");
+              self._triggerError(data || "Merchant validation failed");
             }
           })
           .catch(function (err) {

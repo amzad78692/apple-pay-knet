@@ -43,19 +43,16 @@ class MerchantValidator
     /**
      * Validate the merchant session with Apple's servers.
      *
-     * @param  string|null $eventValidationUrl  The validationURL from the JS onvalidatemerchant
-     *                                          event. Apple issues a unique URL per session —
-     *                                          passing the wrong URL causes a 400 response.
-     *                                          Falls back to config validation_url when omitted.
+     * Uses the fixed validation URL from config (same approach as the working
+     * apple-pay-php implementation). The merchant identifier is read directly
+     * from the certificate so you don't have to configure it separately.
+     *
      * @return array  Opaque merchant session to pass to completeMerchantValidation()
      * @throws ApplePayException
      */
-    public function validate(?string $eventValidationUrl = null): array
+    public function validate(): array
     {
         $this->assertCertificatesAreValid();
-
-        $url = $eventValidationUrl ?: $this->validationUrl;
-        $this->assertValidationUrlIsAppleDomain($url);
 
         $merchantIdentifier = $this->getMerchantIdentifierFromCert();
         $domain             = $this->getDomainFromRequest();
@@ -69,11 +66,10 @@ class MerchantValidator
         ];
 
         $curlOptions = [
-            CURLOPT_URL             => $url,
+            CURLOPT_URL             => $this->validationUrl,
             CURLOPT_POST            => true,
             CURLOPT_POSTFIELDS      => json_encode($postData),
             CURLOPT_RETURNTRANSFER  => true,
-            CURLOPT_HTTPHEADER      => ['Content-Type: application/json'],
             CURLOPT_SSLCERT         => $this->certificatePath,
             CURLOPT_SSLKEY          => $this->certificateKeyPath,
             CURLOPT_SSLKEYPASSWD    => $this->certificateKeyPassword,
@@ -105,22 +101,6 @@ class MerchantValidator
         }
 
         return $decoded;
-    }
-
-    /**
-     * Ensure the validation URL is an Apple-owned domain to prevent SSRF.
-     *
-     * @throws ApplePayException
-     */
-    private function assertValidationUrlIsAppleDomain(string $url): void
-    {
-        $host = strtolower((string) parse_url($url, PHP_URL_HOST));
-
-        if ($host === '' || !preg_match('/(?:^|\.)apple\.com$/', $host)) {
-            throw ApplePayException::merchantValidationFailed(
-                'Invalid validation URL: host must be apple.com or a subdomain of apple.com.'
-            );
-        }
     }
 
     /**

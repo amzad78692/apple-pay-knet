@@ -28,14 +28,13 @@ class ApplePayController extends Controller
     /**
      * Validate the Apple Pay merchant session.
      *
-     * Called by JS onvalidatemerchant. The browser must POST the validationUrl
-     * from the event — Apple issues a unique URL per session and rejects requests
-     * that use any other URL.
+     * Called by JS onvalidatemerchant. Uses the fixed validation URL from config —
+     * no URL is taken from the request (matches the proven working implementation).
      */
     public function validateMerchant(Request $request): JsonResponse
     {
         try {
-            $session = $this->merchantValidator->validate($request->input('validationUrl'));
+            $session = $this->merchantValidator->validate();
 
             return response()->json(['status' => true, 'response' => $session]);
         } catch (ApplePayException $e) {
