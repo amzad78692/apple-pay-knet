@@ -17,7 +17,7 @@ class CreateApplePayTransactionsTable extends Migration
             $table->string('knet_transaction_id')->nullable();
             $table->enum('status', ['pending', 'authorized', 'captured', 'failed'])
                   ->default('pending');
-            $table->string('response_code', 4)->nullable();
+            $table->string('response_code')->nullable();
             $table->string('auth_code')->nullable();
             $table->json('raw_response')->nullable();
             $table->timestamps();
